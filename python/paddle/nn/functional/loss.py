@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import TYPE_CHECKING, Literal, overload
 
 import paddle
@@ -1872,6 +1873,8 @@ def kl_div(
 def mse_loss(
     input: Tensor,
     label: Tensor,
+    size_average: bool | str | None = None,
+    reduce: bool | None = None,
     reduction: _ReduceMode = 'mean',
     name: str | None = None,
 ) -> Tensor:
@@ -1897,6 +1900,13 @@ def mse_loss(
         input (Tensor): Input tensor, the data type should be float32 or float64.
         label (Tensor): Label tensor, the data type should be float32 or float64.
             Alias: ``target``.
+        size_average (bool|str|None, optional): Deprecated parameter kept for PyTorch compatibility.
+            When a string is provided as the 3rd positional argument, it is treated as ``reduction`` to keep
+            Paddle's historical calling style unchanged. Otherwise, if specified together with ``reduce``, they
+            override ``reduction`` using PyTorch legacy semantics. Default is ``None``.
+        reduce (bool|None, optional): Deprecated parameter kept for PyTorch compatibility.
+            If specified together with ``size_average``, they override ``reduction`` using PyTorch legacy semantics.
+            Default is ``None``.
         reduction (string, optional): The reduction method for the output,
             could be 'none' | 'mean' | 'sum'.
             If :attr:`reduction` is ``'mean'``, the reduced mean loss is returned.
@@ -1923,6 +1933,37 @@ def mse_loss(
             0.04000002)
 
     """
+
+    if isinstance(size_average, str):
+        if reduce is not None or reduction != 'mean':
+            raise TypeError(
+                "mse_loss() received conflicting values for 'reduction'."
+            )
+        reduction = size_average
+        size_average = None
+
+    if size_average is not None or reduce is not None:
+        if size_average is not None and not isinstance(size_average, bool):
+            raise TypeError(
+                f"mse_loss() expected 'size_average' to be bool or None, but got {type(size_average).__name__}."
+            )
+        if reduce is not None and not isinstance(reduce, bool):
+            raise TypeError(
+                f"mse_loss() expected 'reduce' to be bool or None, but got {type(reduce).__name__}."
+            )
+
+        if reduce is False:
+            reduction = 'none'
+        elif size_average is False:
+            reduction = 'sum'
+        else:
+            reduction = 'mean'
+
+        warnings.warn(
+            f"size_average and reduce args will be deprecated, please use reduction='{reduction}' instead.",
+            category=Warning,
+            stacklevel=2,
+        )
 
     if reduction not in ['sum', 'mean', 'none']:
         raise ValueError(

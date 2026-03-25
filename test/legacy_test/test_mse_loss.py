@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import unittest
+import warnings
 
 import numpy as np
 from op_test import get_device_place, is_custom_device
@@ -370,6 +371,100 @@ class TestNNFunctionalMseLossAlias(unittest.TestCase):
             np.testing.assert_allclose(
                 out3.numpy(), out4.numpy(), rtol=1e-6, atol=0.0
             )
+
+
+class TestNNFunctionalMseLossLegacyArgs(unittest.TestCase):
+    def test_target_alias_with_legacy_args_dygraph(self):
+        with base.dygraph.guard():
+            x = paddle.randn([4, 5], dtype="float32")
+            y = paddle.randn([4, 5], dtype="float32")
+
+            ref_mean = F.mse_loss(input=x, label=y, reduction="mean")
+            ref_sum = F.mse_loss(input=x, label=y, reduction="sum")
+            ref_none = F.mse_loss(input=x, label=y, reduction="none")
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                out_mean = F.mse_loss(
+                    input=x,
+                    target=y,
+                    size_average=None,
+                    reduce=True,
+                    reduction="mean",
+                )
+                out_mean_reordered = F.mse_loss(
+                    reduction="mean",
+                    reduce=True,
+                    size_average=None,
+                    target=y,
+                    input=x,
+                )
+                out_sum = F.mse_loss(input=x, target=y, size_average=False)
+                out_none = F.mse_loss(input=x, target=y, reduce=False)
+
+            np.testing.assert_allclose(
+                ref_mean.numpy(), out_mean.numpy(), rtol=1e-6, atol=0.0
+            )
+            np.testing.assert_allclose(
+                ref_mean.numpy(),
+                out_mean_reordered.numpy(),
+                rtol=1e-6,
+                atol=0.0,
+            )
+            np.testing.assert_allclose(
+                ref_sum.numpy(), out_sum.numpy(), rtol=1e-6, atol=0.0
+            )
+            np.testing.assert_allclose(
+                ref_none.numpy(), out_none.numpy(), rtol=1e-6, atol=0.0
+            )
+
+    def test_target_alias_with_legacy_args_static(self):
+        input_np = np.random.uniform(0.1, 0.5, [4, 5]).astype("float32")
+        target_np = np.random.uniform(0.1, 0.5, [4, 5]).astype("float32")
+
+        paddle.enable_static()
+        prog = paddle.static.Program()
+        startup_prog = paddle.static.Program()
+        place = get_device_place()
+        with paddle.static.program_guard(prog, startup_prog):
+            input = paddle.static.data(
+                name='input', shape=[4, 5], dtype='float32'
+            )
+            target = paddle.static.data(
+                name='target', shape=[4, 5], dtype='float32'
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                out_mean = F.mse_loss(
+                    input=input,
+                    target=target,
+                    size_average=None,
+                    reduce=True,
+                    reduction="mean",
+                )
+                out_sum = F.mse_loss(
+                    input=input, target=target, size_average=False
+                )
+                out_none = F.mse_loss(input=input, target=target, reduce=False)
+
+        exe = paddle.static.Executor(place)
+        exe.run(startup_prog)
+        static_mean, static_sum, static_none = exe.run(
+            prog,
+            feed={"input": input_np, "target": target_np},
+            fetch_list=[out_mean, out_sum, out_none],
+        )
+
+        sub = input_np - target_np
+        np.testing.assert_allclose(
+            static_mean, np.mean(sub * sub), rtol=1e-6, atol=0.0
+        )
+        np.testing.assert_allclose(
+            static_sum, np.sum(sub * sub), rtol=1e-6, atol=0.0
+        )
+        np.testing.assert_allclose(
+            static_none, sub * sub, rtol=1e-6, atol=0.0
+        )
 
 
 if __name__ == "__main__":
